@@ -61,12 +61,12 @@
             border-color: #00ffcc;
         }
 
-        /* MOSAICO (GRID) */
+        /* MOSAICO LAYOUT 1+12 (6 COLUNAS x 3 LINHAS) */
         .mosaic-container {
             flex: 1;
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            grid-template-rows: repeat(2, 1fr);
+            grid-template-columns: repeat(6, 1fr);
+            grid-template-rows: repeat(3, 1fr);
             gap: 4px;
             padding: 4px;
             background: #000;
@@ -84,6 +84,28 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            cursor: grab;
+            user-select: none;
+        }
+
+        .camera-card:active {
+            cursor: grabbing;
+        }
+
+        .camera-card.dragging {
+            opacity: 0.4;
+            border: 2px dashed #00ffcc;
+        }
+
+        .camera-card.drag-over {
+            border: 2px solid #00ffcc;
+            background: #111;
+        }
+
+        /* CÂMERA DE DESTAQUE (PRIMEIRA): 3 colunas por 2 linhas (Proporção 16:9 perfeita) */
+        .camera-card:nth-child(1) {
+            grid-column: span 3;
+            grid-row: span 2;
         }
 
         .camera-card.expanded {
@@ -134,13 +156,13 @@
             50% { opacity: 0.3; }
         }
 
+        /* CORREÇÃO DO ASPECT RATIO: 'contain' mantém a proporção sem achatar nem cortar */
         video {
             display: block;
             width: 100%;
             height: 100%;
             object-fit: contain;
             background: #000;
-            cursor: pointer;
         }
 
         .status {
@@ -159,21 +181,18 @@
             border-radius: 4px;
         }
 
-        @media (max-width: 1024px) {
+        @media (max-width: 768px) {
             .mosaic-container {
-                grid-template-columns: repeat(2, 1fr);
-                grid-template-rows: repeat(4, 1fr);
-            }
-        }
-
-        @media (max-width: 600px) {
-            .mosaic-container {
-                grid-template-columns: 1fr;
-                grid-template-rows: auto;
+                display: flex;
+                flex-direction: column;
                 overflow-y: auto;
             }
             .camera-card {
                 height: 220px;
+                flex-shrink: 0;
+            }
+            .camera-card:nth-child(1) {
+                height: 280px;
             }
         }
     </style>
@@ -182,7 +201,7 @@
 <body>
 
     <div class="dvr-header">
-        <div class="dvr-title">🖥️ CENTRAL DE MONITORAMENTO — MOSAICO DVR</div>
+        <div class="dvr-title">🖥️ CENTRAL DE MONITORAMENTO BOP 123/1  -- Desenvolvido por CB Wilhelm</div>
         <button class="dvr-btn" onclick="toggleFullScreen()">⛶ Tela Cheia</button>
     </div>
 
@@ -199,10 +218,16 @@
             { name: "CAM 20", url: "/hls/cam_20/stream.m3u8" },
             { name: "CAM 19", url: "/hls/cam_19/stream.m3u8" },
             { name: "CAM 18", url: "/hls/cam_18/stream.m3u8" },
-            { name: "CAM 16", url: "/hls/cam_16/stream.m3u8" }
+            { name: "CAM 16 - A", url: "/hls/cam_16/stream.m3u8" },
+            { name: "CAM 24", url: "/hls/cam_24/stream.m3u8" },
+            { name: "CAM 25", url: "/hls/cam_25/stream.m3u8" },
+            { name: "CAM 26", url: "/hls/cam_26/stream.m3u8" },
+            { name: "CAM 27", url: "/hls/cam_27/stream.m3u8" },
+            { name: "CAM 28", url: "/hls/cam_28/stream.m3u8" }
         ];
 
         const mosaic = document.getElementById("mosaic");
+        let draggedCard = null;
 
         function setupCamera(video, url, status, cameraName) {
             if (Hls.isSupported()) {
@@ -270,11 +295,12 @@
         cameras.forEach((camera, index) => {
             const card = document.createElement("div");
             card.className = "camera-card";
+            card.draggable = true;
 
             const header = document.createElement("div");
             header.className = "camera-header";
             header.innerHTML = `
-                <span>${camera.name}</span>
+                <span class="cam-title">${camera.name}</span>
                 <span class="live"><span class="live-dot"></span>AO VIVO</span>
             `;
 
@@ -290,6 +316,49 @@
 
             card.addEventListener("dblclick", () => {
                 card.classList.toggle("expanded");
+            });
+
+            /* DRAG AND DROP */
+            card.addEventListener("dragstart", (e) => {
+                draggedCard = card;
+                card.classList.add("dragging");
+                e.dataTransfer.effectAllowed = "move";
+            });
+
+            card.addEventListener("dragend", () => {
+                card.classList.remove("dragging");
+                document.querySelectorAll(".camera-card").forEach(c => c.classList.remove("drag-over"));
+            });
+
+            card.addEventListener("dragover", (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (card !== draggedCard) {
+                    card.classList.add("drag-over");
+                }
+            });
+
+            card.addEventListener("dragleave", () => {
+                card.classList.remove("drag-over");
+            });
+
+            card.addEventListener("drop", (e) => {
+                e.preventDefault();
+                card.classList.remove("drag-over");
+
+                if (draggedCard && draggedCard !== card) {
+                    const allCards = Array.from(mosaic.children);
+                    const indexDragged = allCards.indexOf(draggedCard);
+                    const indexTarget = allCards.indexOf(card);
+
+                    if (indexDragged < indexTarget) {
+                        mosaic.insertBefore(draggedCard, card.nextSibling);
+                        mosaic.insertBefore(card, mosaic.children[indexDragged]);
+                    } else {
+                        mosaic.insertBefore(draggedCard, card);
+                        mosaic.insertBefore(card, mosaic.children[indexDragged + 1]);
+                    }
+                }
             });
 
             card.appendChild(header);
