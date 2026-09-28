@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mosaico DVR — Ao Vivo</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* TOPO */
+        .dvr-header {
+            height: 48px;
+            min-height: 48px;
+            background: #151515;
+            padding: 0 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 2px solid #222;
+        }
+
+        .dvr-title {
+            color: #00ffcc;
+            font-size: 15px;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+
+        .dvr-btn {
+            background: #222;
+            color: white;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s ease;
+        }
+
+        .dvr-btn:hover {
+            background: #333;
+            border-color: #00ffcc;
+        }
+
+        /* MOSAICO (GRID) */
+        .mosaic-container {
+            flex: 1;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            grid-template-rows: repeat(2, 1fr);
+            gap: 4px;
+            padding: 4px;
+            background: #000;
+            min-height: 0;
+        }
+
+        /* CARD DA CÂMERA */
+        .camera-card {
+            position: relative;
+            background: #050505;
+            overflow: hidden;
+            border: 1px solid #222;
+            min-width: 0;
+            min-height: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .camera-card.expanded {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 999;
+            border: none;
+        }
+
+        .camera-header {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 26px;
+            padding: 4px 8px;
+            background: rgba(0, 0, 0, 0.75);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: white;
+            font-size: 11px;
+            font-weight: bold;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .live {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            background: #ff3030;
+            border-radius: 50%;
+            box-shadow: 0 0 5px #ff3030;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        video {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+            cursor: pointer;
+        }
+
+        .status {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            color: #888;
+            font-size: 12px;
+            text-align: center;
+            z-index: 5;
+            pointer-events: none;
+            white-space: nowrap;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        @media (max-width: 1024px) {
+            .mosaic-container {
+                grid-template-columns: repeat(2, 1fr);
+                grid-template-rows: repeat(4, 1fr);
+            }
+        }
+
+        @media (max-width: 600px) {
+            .mosaic-container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto;
+                overflow-y: auto;
+            }
+            .camera-card {
+                height: 220px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="dvr-header">
+        <div class="dvr-title">🖥️ CENTRAL DE MONITORAMENTO — MOSAICO DVR</div>
+        <button class="dvr-btn" onclick="toggleFullScreen()">⛶ Tela Cheia</button>
+    </div>
+
+    <div id="mosaic" class="mosaic-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+    <script>
+        const cameras = [
+            { name: "CAM 23", url: "/hls/cam_23/stream.m3u8" },
+            { name: "CAM 40", url: "/hls/cam_40/stream.m3u8" },
+            { name: "CAM 02", url: "/hls/cam_2/stream.m3u8" },
+            { name: "CAM 42", url: "/hls/cam_42/stream.m3u8" },
+            { name: "CAM 20", url: "/hls/cam_20/stream.m3u8" },
+            { name: "CAM 19", url: "/hls/cam_19/stream.m3u8" },
+            { name: "CAM 18", url: "/hls/cam_18/stream.m3u8" },
+            { name: "CAM 16", url: "/hls/cam_16/stream.m3u8" }
+        ];
+
+        const mosaic = document.getElementById("mosaic");
+
+        function setupCamera(video, url, status, cameraName) {
+            if (Hls.isSupported()) {
+                const hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    backBufferLength: 0,
+                    liveSyncDurationCount: 2,
+                    liveMaxLatencyDurationCount: 4,
+                    maxBufferLength: 5,
+                    manifestLoadingMaxRetry: Infinity,
+                    manifestLoadingRetryDelay: 2000,
+                    fragLoadingMaxRetry: Infinity,
+                    fragLoadingRetryDelay: 2000
+                });
+
+                video.hls = hls;
+
+                hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                    status.innerText = "Iniciando...";
+                    video.muted = true;
+                    video.play().then(() => {
+                        status.style.display = "none";
+                    }).catch(() => {
+                        status.innerText = "Clique para reproduzir";
+                    });
+                });
+
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.fatal) {
+                        status.style.display = "block";
+                        status.innerText = "Reconectando...";
+
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                hls.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                hls.recoverMediaError();
+                                break;
+                            default:
+                                try { hls.destroy(); } catch (e) {}
+                                setTimeout(() => setupCamera(video, url, status, cameraName), 3000);
+                                break;
+                        }
+                    }
+                });
+
+                hls.loadSource(url);
+                hls.attachMedia(video);
+
+            } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+                video.src = url;
+                video.addEventListener("loadedmetadata", function () {
+                    status.style.display = "none";
+                    video.play().catch(() => {
+                        status.innerText = "Clique para reproduzir";
+                    });
+                });
+            } else {
+                status.innerText = "Navegador incompatível";
+            }
+        }
+
+        cameras.forEach((camera, index) => {
+            const card = document.createElement("div");
+            card.className = "camera-card";
+
+            const header = document.createElement("div");
+            header.className = "camera-header";
+            header.innerHTML = `
+                <span>${camera.name}</span>
+                <span class="live"><span class="live-dot"></span>AO VIVO</span>
+            `;
+
+            const status = document.createElement("div");
+            status.className = "status";
+            status.innerText = "Carregando...";
+
+            const video = document.createElement("video");
+            video.id = "video-" + index;
+            video.autoplay = true;
+            video.muted = true;
+            video.playsInline = true;
+
+            card.addEventListener("dblclick", () => {
+                card.classList.toggle("expanded");
+            });
+
+            card.appendChild(header);
+            card.appendChild(status);
+            card.appendChild(video);
+            mosaic.appendChild(card);
+
+            setupCamera(video, camera.url, status, camera.name);
+        });
+
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => console.error(err));
+            } else {
+                document.exitFullscreen();
+            }
+        }
+    </script>
+</body>
+</html>
